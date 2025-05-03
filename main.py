@@ -7,12 +7,21 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Cal
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 BASE_DIR = os.getenv("BASE_DIR", "archivos")
+ALLOWED_USERS = set(map(int, os.getenv("ALLOWED_USERS", "").split(",")))
 
 # Diccionario para guardar carpetas seleccionadas por usuario
 user_selected_folder = {}
 
+# Verificar si el usuario tiene permiso
+def is_authorized(user_id: int) -> bool:
+    return user_id in ALLOWED_USERS
+
 # Comando /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_authorized(user_id):
+        return  # No mostrar nada si no está autorizado
+
     folders = [f for f in os.listdir(BASE_DIR) if os.path.isdir(os.path.join(BASE_DIR, f))]
     keyboard = [[InlineKeyboardButton(f, callback_data=f)] for f in folders]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -21,8 +30,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Selección de carpeta
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    folder = query.data
     user_id = query.from_user.id
+    if not is_authorized(user_id):
+        await query.answer("No tienes permisos para usar este bot.", show_alert=True)
+        return
+
+    folder = query.data
     user_selected_folder[user_id] = folder
     await query.answer()
     await query.edit_message_text(f"Has seleccionado la carpeta: {folder}")
@@ -30,8 +43,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Recepción de archivos
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    folder = user_selected_folder.get(user_id)
+    if not is_authorized(user_id):
+        return
 
+    folder = user_selected_folder.get(user_id)
     if not folder:
         await update.message.reply_text("Por favor, selecciona una carpeta primero con /start")
         return
