@@ -28,7 +28,7 @@ Este bot te permite enviar archivos por Telegram y guardarlos automáticamente e
 ### 1. Clona el repositorio
 
 ```bash
-git clone https://github.com/tuusuario/bot-archivos-telegram.git
+git clone https://github.com/Romezzn/ServerDirBot.git
 cd bot-archivos-telegram
 ```
 
