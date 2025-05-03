@@ -49,8 +49,9 @@ pip install -r requirements.txt
 ### 4. Crea el archivo `.env` con tus variables de entorno
 
 ```env
-TELEGRAM_BOT_TOKEN=tu_token_de_telegram
+TELEGRAM_BOT_TOKEN=123456789:ABCDEF-TOKEN-DEL-BOT
 BASE_DIR=archivos
+ALLOWED_USERS=123456789,987654321
 ```
 
 > `BASE_DIR` es la carpeta dentro del proyecto donde estarán las subcarpetas destino (por defecto se usará `archivos/`).
