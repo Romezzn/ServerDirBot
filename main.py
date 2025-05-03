@@ -1,85 +1,102 @@
 import os
+import base64
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+)
 
 # Cargar variables desde .env
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 BASE_DIR = os.getenv("BASE_DIR", "archivos")
-ALLOWED_USERS = set(map(int, os.getenv("ALLOWED_USERS", "").split(",")))
+AUTHORIZED_USERS = os.getenv("AUTHORIZED_USERS", "").split(",")  # IDs separados por coma
 
-# Diccionario para guardar carpeta seleccionada por usuario
+# Diccionario para guardar carpetas seleccionadas por usuario
 user_selected_folder = {}
 
-# Verificación de usuario autorizado
-def is_authorized(user_id: int) -> bool:
-    return user_id in ALLOWED_USERS
+# Funciones para codificar/decodificar rutas
+def encode_path(path: str) -> str:
+    return base64.urlsafe_b64encode(path.encode()).decode()
 
-# Mostrar carpetas/subcarpetas
-async def show_folders(update: Update, context: ContextTypes.DEFAULT_TYPE, path=""):
-    base_path = os.path.join(BASE_DIR, path)
-    folders = [f for f in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, f))]
+def decode_path(encoded: str) -> str:
+    return base64.urlsafe_b64decode(encoded.encode()).decode()
 
+# Mostrar las carpetas como botones
+async def show_folders(query, context, path=BASE_DIR):
+    folders = [f for f in os.listdir(path) if os.path.isdir(os.path.join(path, f))]
     keyboard = []
 
-    if path:  # Agregar botón "Seleccionar esta carpeta" si no estamos en la raíz
-        keyboard.append([InlineKeyboardButton("📁 Seleccionar esta carpeta", callback_data=f"SELECT::{path}")])
+    # Botón para seleccionar esta carpeta
+    encoded = encode_path(path)
+    keyboard.append([InlineKeyboardButton("📁 Seleccionar esta carpeta", callback_data=f"SELECT::{encoded}")])
 
+    # Subcarpetas
     for f in folders:
-        new_path = os.path.join(path, f).replace("\\", "/")
-        keyboard.append([InlineKeyboardButton(f, callback_data=f"FOLDER::{new_path}")])
+        subpath = os.path.join(path, f)
+        encoded_subpath = encode_path(subpath)
+        keyboard.append([InlineKeyboardButton(f, callback_data=f"FOLDER::{encoded_subpath}")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Selecciona una carpeta:", reply_markup=reply_markup)
+    await query.edit_message_text("Selecciona una subcarpeta o esta carpeta:", reply_markup=reply_markup)
 
-# /start
+# Comando /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_authorized(update.effective_user.id):
-        return
-    await show_folders(update, context)
+    user_id = str(update.effective_user.id)
+    if user_id not in AUTHORIZED_USERS:
+        return  # Usuario no autorizado
 
-# Manejo de botones
+    folders = [f for f in os.listdir(BASE_DIR) if os.path.isdir(os.path.join(BASE_DIR, f))]
+    keyboard = [[InlineKeyboardButton(f, callback_data=f"FOLDER::{encode_path(os.path.join(BASE_DIR, f))}")] for f in folders]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Selecciona la carpeta de destino para los archivos:", reply_markup=reply_markup)
+
+# Botón pulsado
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    if not is_authorized(user_id):
-        await query.answer("No tienes permisos para usar este bot.", show_alert=True)
+    user_id = str(query.from_user.id)
+    if user_id not in AUTHORIZED_USERS:
+        await query.answer("No estás autorizado para usar este bot.")
         return
 
+    await query.answer()
     data = query.data
+
     if data.startswith("FOLDER::"):
-        path = data.split("FOLDER::")[1]
-        # Mostrar subcarpetas
+        encoded = data.split("FOLDER::")[1]
+        path = decode_path(encoded)
         await show_folders(query, context, path)
+
     elif data.startswith("SELECT::"):
-        selected_path = data.split("SELECT::")[1]
-        user_selected_folder[user_id] = selected_path
+        encoded = data.split("SELECT::")[1]
+        selected_path = decode_path(encoded)
+        user_selected_folder[int(user_id)] = selected_path
         await query.edit_message_text(f"Has seleccionado: /{selected_path}")
 
-# Manejo de documentos/imágenes
+# Recepción de archivos
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not is_authorized(user_id):
-        return
+    if str(user_id) not in AUTHORIZED_USERS:
+        return  # Usuario no autorizado
 
     folder = user_selected_folder.get(user_id)
     if not folder:
-        await update.message.reply_text("Primero selecciona una carpeta con /start")
+        await update.message.reply_text("Por favor, selecciona una carpeta primero con /start")
         return
 
     file = update.message.document or update.message.photo[-1]
     file_name = getattr(file, "file_name", f"{file.file_unique_id}.jpg")
-    file_path = os.path.join(BASE_DIR, folder, file_name)
-
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    file_path = os.path.join(folder, file_name)
 
     new_file = await context.bot.get_file(file.file_id)
     await new_file.download_to_drive(file_path)
 
-    await update.message.reply_text(f"Archivo guardado en /{folder}/{file_name}")
+    await update.message.reply_text(f"Archivo guardado en:\n📁 /{folder}/{file_name}")
 
 # Main
 if __name__ == "__main__":
