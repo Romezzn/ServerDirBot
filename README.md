@@ -35,7 +35,7 @@ cd bot-archivos-telegram
 ### 2. Crea un entorno virtual (recomendado)
 
 ```bash
-python3 -m venv venv
+python -m venv venv
 source venv/bin/activate      # En Linux/macOS
 venv\Scripts\activate       # En Windows
 ```
